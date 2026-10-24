@@ -1,16 +1,14 @@
 """
-OptiRoute FEFO Repair (Dev B - solver/fefo_repair.py)
-Implements post-optimization First-Expired, First-Out (FEFO) audit and repair heuristic.
-Ensures that inventory batches dispatched from warehouses strictly prioritize earliest expiring lots,
-guards against in-transit spoilage (days_to_expiry <= lead_time), and calculates wastage metrics.
+OptiRoute FEFO Repair & Verification Module (Dev B - solver/fefo_repair.py)
+Implements an O(|B|) post-solve swap pass to eliminate FEFO violations by prioritizing
+older eligible batches while preserving total units, store allocations, and truck assignments.
 """
 
 import os
 import sys
-import copy
-import time
+import sqlite3
 from pathlib import Path
-from typing import List, Dict, Tuple, Optional, Any
+from typing import List, Dict, Tuple, Optional
 import pandas as pd
 
 # Ensure repo root is on sys.path
@@ -18,251 +16,281 @@ _REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
-from common.contracts import ShipmentLine, PlanResult
-from solver.optimizer import load_optimizer_data
+from common.contracts import PlanResult, ShipmentLine
+try:
+    from common.db import DB_PATH
+except ImportError:
+    DB_PATH = "optiroute_data.sqlite"
 
 
-def validate_fefo_compliance(
-    plan: PlanResult,
-    batches_df: pd.DataFrame,
-    lanes_df: Optional[pd.DataFrame] = None
-) -> Dict[str, Any]:
+def _normalize_columns(df: pd.DataFrame, mappings: Dict[str, List[str]]) -> pd.DataFrame:
+    df = df.copy()
+    col_map = {}
+    lower_cols = {c.lower(): c for c in df.columns}
+    for standard_key, candidates in mappings.items():
+        for cand in candidates:
+            if cand.lower() in lower_cols:
+                col_map[lower_cols[cand.lower()]] = standard_key
+                break
+    return df.rename(columns=col_map)
+
+
+def load_fefo_metadata(db_path: Optional[str] = None) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    path = db_path or DB_PATH
+    if not os.path.exists(path):
+        alt_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "optiroute_data.sqlite")
+        if os.path.exists(alt_path):
+            path = alt_path
+
+    conn = sqlite3.connect(path)
+    try:
+        skus_df = pd.read_sql_query("SELECT * FROM skus", conn)
+        lanes_df = pd.read_sql_query("SELECT * FROM lanes", conn)
+        batches_df = pd.read_sql_query("SELECT * FROM inventory_batches", conn)
+    finally:
+        conn.close()
+
+    sku_mappings = {
+        "sku_id": ["sku_id", "id", "sku", "product_id"],
+        "case_pack_size": ["case_pack_size", "pack_size", "case_pack", "case_size", "pack", "k_s"],
+        "min_shelf_life": ["min_shelf_life", "min_delivery_shelf_life", "shelf_life_min", "mu_s"],
+        "margin": ["margin", "unit_margin", "profit_margin", "selling_price", "price", "m_s"],
+    }
+    skus_df = _normalize_columns(skus_df, sku_mappings)
+    if "case_pack_size" not in skus_df.columns:
+        skus_df["case_pack_size"] = 1
+    if "min_shelf_life" not in skus_df.columns:
+        skus_df["min_shelf_life"] = 0
+
+    lane_mappings = {
+        "warehouse_id": ["warehouse_id", "source_warehouse", "origin_dc", "origin", "warehouse", "from_dc", "w"],
+        "store_id": ["store_id", "destination_store", "destination", "dest_store", "store", "to_store", "l"],
+        "lead_time": ["lead_time", "lead_time_days", "transit_days", "transit_time", "tau_wl"],
+    }
+    lanes_df = _normalize_columns(lanes_df, lane_mappings)
+    if "lead_time" not in lanes_df.columns:
+        lanes_df["lead_time"] = 1
+
+    batch_mappings = {
+        "batch_id": ["batch_id", "id", "batch", "lot_id", "lot"],
+        "sku_id": ["sku_id", "sku", "product_id"],
+        "warehouse_id": ["warehouse_id", "warehouse", "source_warehouse", "dc_id", "dc"],
+        "quantity": ["quantity", "batch_quantity", "units", "stock", "inventory_qty", "qty", "q_b"],
+        "days_to_expiry": ["days_to_expiry", "expiry_days", "shelf_life_remaining", "days_left", "shelf_life_days", "d_b"],
+    }
+    batches_df = _normalize_columns(batches_df, batch_mappings)
+    if "quantity" not in batches_df.columns:
+        batches_df["quantity"] = 0
+    if "days_to_expiry" not in batches_df.columns:
+        batches_df["days_to_expiry"] = 30
+
+    return skus_df, lanes_df, batches_df
+
+
+def repair_fefo_violations(plan_result: PlanResult, db_path: Optional[str] = None) -> PlanResult:
     """
-    Validates whether shipments in a PlanResult adhere to strict FEFO ordering:
-    No later-expiring batch should be shipped from a warehouse if an earlier-expiring
-    batch of the same SKU with valid shelf life was available and had unallocated inventory.
+    Performs an O(|B|) swap pass transferring shipments to older eligible batches in the same warehouse.
+    Preserves exact store allocations, truck assignments, and lane flows.
     """
-    violations = []
-    total_spoilage_units = 0
+    if not plan_result.shipments:
+        return plan_result
 
-    # Build lookup of batch properties: (warehouse_id, sku_id, batch_id) -> days_to_expiry, quantity
-    batch_map = {}
-    for _, row in batches_df.iterrows():
-        w = str(row["warehouse_id"])
-        s = str(row["sku_id"])
-        b = str(row["batch_id"])
-        batch_map[(w, s, b)] = {
-            "days_to_expiry": float(row.get("days_to_expiry", 30)),
-            "quantity": float(row.get("quantity", 0)),
+    skus_df, lanes_df, batches_df = load_fefo_metadata(db_path)
+
+    sku_meta = {}
+    for _, row in skus_df.iterrows():
+        s_id = str(row["sku_id"])
+        sku_meta[s_id] = {
+            "case_pack_size": int(row.get("case_pack_size", 1)),
+            "min_shelf_life": int(row.get("min_shelf_life", 0)),
         }
 
-    # Group shipments by (warehouse_id, sku_id)
-    shipped_quantities: Dict[Tuple[str, str, str], int] = {}
-    for line in plan.shipments:
-        if line.days_to_expiry_at_arrival <= 0:
-            total_spoilage_units += line.units_shipped
-        key = (str(line.warehouse_id), str(line.sku_id), str(line.batch_id))
-        shipped_quantities[key] = shipped_quantities.get(key, 0) + line.units_shipped
-
-    # Check for inversions per (warehouse_id, sku_id)
-    wh_skus = {(str(line.warehouse_id), str(line.sku_id)) for line in plan.shipments}
-    for (w, s) in wh_skus:
-        # All available batches at warehouse w for SKU s sorted by days_to_expiry
-        avail_batches = [
-            (b, data["days_to_expiry"], data["quantity"])
-            for (bw, bs, b), data in batch_map.items()
-            if bw == w and bs == s
-        ]
-        avail_batches.sort(key=lambda item: item[1])  # sort by days_to_expiry ascending
-
-        # Find maximum days_to_expiry actually shipped
-        shipped_b_exp = [
-            batch_map[(w, s, b)]["days_to_expiry"]
-            for (bw, bs, b) in shipped_quantities.keys()
-            if bw == w and bs == s and (w, s, b) in batch_map
-        ]
-        if not shipped_b_exp:
-            continue
-        max_shipped_exp = max(shipped_b_exp)
-
-        # Check if an earlier expiring batch was skipped despite having leftover stock
-        for (b_id, d_exp, total_qty) in avail_batches:
-            if d_exp < max_shipped_exp:
-                shipped = shipped_quantities.get((w, s, b_id), 0)
-                unallocated = total_qty - shipped
-                if unallocated > 0:
-                    violations.append({
-                        "warehouse_id": w,
-                        "sku_id": s,
-                        "skipped_batch": b_id,
-                        "skipped_days_to_expiry": d_exp,
-                        "unallocated_units": unallocated,
-                        "max_shipped_days_to_expiry": max_shipped_exp,
-                    })
-
-    is_compliant = len(violations) == 0
-    return {
-        "is_compliant": is_compliant,
-        "violation_count": len(violations),
-        "violations": violations,
-        "total_spoilage_units": total_spoilage_units,
-    }
-
-
-def repair_plan_fefo(
-    plan: PlanResult,
-    db_path: Optional[str] = None,
-    batches_df: Optional[pd.DataFrame] = None,
-    lanes_df: Optional[pd.DataFrame] = None,
-    skus_df: Optional[pd.DataFrame] = None,
-) -> PlanResult:
-    """
-    Post-processes a PlanResult to strictly enforce First-Expired, First-Out (FEFO) batch allocation.
-
-    For each (warehouse_id, sku_id):
-      1. Aggregates the total units shipped across all destination stores.
-      2. Ranks available batches in ascending order of days_to_expiry (FEFO).
-      3. Validates shelf life against lane lead times (avoiding arrival with <= 0 shelf life).
-      4. Sequentially reassigns shipments to the earliest-expiring viable lots.
-      5. Computes total network wastage_units (units arriving spoiled).
-      6. Returns a modernized, repaired PlanResult.
-    """
-    if not plan.shipments:
-        return copy.deepcopy(plan)
-
-    # 1. Load reference data if not provided
-    if batches_df is None or lanes_df is None or skus_df is None:
-        skus_data, lanes_data, batches_data = load_optimizer_data(db_path)
-        skus_df = skus_df if skus_df is not None else skus_data
-        lanes_df = lanes_df if lanes_df is not None else lanes_data
-        batches_df = batches_df if batches_df is not None else batches_data
-
-    # Map lane lead times: (w, l) -> lead_time
-    lead_times = {}
+    lane_lead_times = {}
     for _, row in lanes_df.iterrows():
-        w = str(row["warehouse_id"])
-        l = str(row["store_id"])
-        lead_times[(w, l)] = max(0, int(row.get("lead_time", 1)))
+        w_id = str(row["warehouse_id"])
+        st_id = str(row["store_id"])
+        lane_lead_times[(w_id, st_id)] = int(row.get("lead_time", 1))
 
-    # Map SKU properties
-    sku_pack_sizes = {}
-    sku_min_shelf = {}
-    for _, row in skus_df.iterrows():
-        s = str(row["sku_id"])
-        sku_pack_sizes[s] = max(1, int(row.get("case_pack_size", 1)))
-        sku_min_shelf[s] = max(0, int(row.get("min_shelf_life", 0)))
-
-    # Track remaining capacity per batch
-    # (warehouse_id, sku_id) -> list of dicts sorted by days_to_expiry
-    warehouse_batches: Dict[Tuple[str, str], List[Dict]] = {}
+    # Group batches by (warehouse_id, sku_id)
+    wh_sku_batches: Dict[Tuple[str, str], List[dict]] = {}
     for _, row in batches_df.iterrows():
-        w = str(row["warehouse_id"])
-        s = str(row["sku_id"])
-        b = str(row["batch_id"])
+        b_id = str(row["batch_id"])
+        s_id = str(row["sku_id"])
+        w_id = str(row["warehouse_id"])
         qty = float(row.get("quantity", 0))
-        d_exp = float(row.get("days_to_expiry", 30))
-        key = (w, s)
-        if key not in warehouse_batches:
-            warehouse_batches[key] = []
-        warehouse_batches[key].append({
-            "batch_id": b,
-            "quantity_remaining": qty,
-            "initial_quantity": qty,
+        d_exp = int(row.get("days_to_expiry", 30))
+        k_s = sku_meta.get(s_id, {}).get("case_pack_size", 1)
+        key = (w_id, s_id)
+        if key not in wh_sku_batches:
+            wh_sku_batches[key] = []
+        wh_sku_batches[key].append({
+            "batch_id": b_id,
+            "sku_id": s_id,
+            "warehouse_id": w_id,
+            "quantity": qty,
             "days_to_expiry": d_exp,
+            "case_pack_size": k_s,
         })
 
-    # Sort each warehouse's batches by days_to_expiry ascending (FEFO)
-    for key in warehouse_batches:
-        warehouse_batches[key].sort(key=lambda item: item["days_to_expiry"])
+    # Sort batches by days_to_expiry ASCENDING (strict FEFO priority)
+    for key in wh_sku_batches:
+        wh_sku_batches[key].sort(key=lambda b: b["days_to_expiry"])
 
-    # 2. Repair allocations per shipment line
+    # Group shipments by (warehouse_id, sku_id)
+    shipments_by_group: Dict[Tuple[str, str], List[ShipmentLine]] = {}
+    other_shipments: List[ShipmentLine] = []
+    for sh in plan_result.shipments:
+        group_key = (sh.warehouse_id, sh.sku_id)
+        if group_key in wh_sku_batches:
+            if group_key not in shipments_by_group:
+                shipments_by_group[group_key] = []
+            shipments_by_group[group_key].append(sh)
+        else:
+            other_shipments.append(sh)
+
     repaired_shipments: List[ShipmentLine] = []
-    total_wastage = 0.0
 
-    # Group original shipment lines by (w, s, l)
-    for line in plan.shipments:
-        w = str(line.warehouse_id)
-        s = str(line.sku_id)
-        l = str(line.store_id)
-        units_needed = line.units_shipped
-        pack_size = sku_pack_sizes.get(s, max(1, line.units_shipped // max(1, line.cases_shipped)))
-        lt = lead_times.get((w, l), 1)
-        min_shelf = sku_min_shelf.get(s, 0)
+    for group_key, current_shipments in shipments_by_group.items():
+        w_id, s_id = group_key
+        batches = wh_sku_batches[group_key]
+        k_s = sku_meta.get(s_id, {}).get("case_pack_size", 1)
+        min_life = sku_meta.get(s_id, {}).get("min_shelf_life", 0)
 
-        key = (w, s)
-        avail = warehouse_batches.get(key, [])
+        # Capacity tracking in case packs
+        batch_remaining_cases = {
+            b["batch_id"]: int(b["quantity"] // k_s) for b in batches
+        }
 
-        # Allocate from earliest-expiring viable batches
-        allocated = False
-        for b_entry in avail:
-            if b_entry["quantity_remaining"] >= units_needed:
-                # Can fulfill entire shipment line from this batch
-                b_entry["quantity_remaining"] -= units_needed
-                d_exp = b_entry["days_to_expiry"]
-                arrival_shelf = max(0, int(d_exp - lt))
+        # Greedy allocation to oldest eligible batches
+        for sh in current_shipments:
+            needed_cases = sh.cases_shipped
+            st_id = sh.store_id
+            t_id = sh.truck_id
+            r_code = sh.reason_code
+            lead_time = lane_lead_times.get((w_id, st_id), 1)
 
-                # Check wastage
-                if arrival_shelf <= 0 or arrival_shelf < min_shelf:
-                    total_wastage += units_needed
+            while needed_cases > 0:
+                allocated_batch = None
+                for b in batches:
+                    b_id = b["batch_id"]
+                    if batch_remaining_cases[b_id] > 0:
+                        arrival_life = b["days_to_expiry"] - lead_time
+                        if arrival_life >= min_life or min_life == 0:
+                            allocated_batch = b
+                            break
 
+                # Fallback to oldest with capacity if shelf life filter isolates
+                if allocated_batch is None:
+                    for b in batches:
+                        if batch_remaining_cases[b["batch_id"]] > 0:
+                            allocated_batch = b
+                            break
+
+                if allocated_batch is None:
+                    repaired_shipments.append(sh)
+                    break
+
+                b_id = allocated_batch["batch_id"]
+                avail = batch_remaining_cases[b_id]
+                take_cases = min(needed_cases, avail)
+
+                batch_remaining_cases[b_id] -= take_cases
+                needed_cases -= take_cases
+
+                arrival_life = max(0, int(allocated_batch["days_to_expiry"] - lead_time))
                 repaired_shipments.append(
                     ShipmentLine(
-                        sku_id=s,
-                        batch_id=b_entry["batch_id"],
-                        warehouse_id=w,
-                        store_id=l,
-                        cases_shipped=units_needed // pack_size,
-                        units_shipped=units_needed,
-                        truck_id=line.truck_id,
-                        days_to_expiry_at_arrival=arrival_shelf,
-                        reason_code="FEFO_REPAIRED" if b_entry["batch_id"] != line.batch_id else line.reason_code,
+                        sku_id=s_id,
+                        batch_id=b_id,
+                        warehouse_id=w_id,
+                        store_id=st_id,
+                        cases_shipped=take_cases,
+                        units_shipped=take_cases * k_s,
+                        truck_id=t_id,
+                        days_to_expiry_at_arrival=arrival_life,
+                        reason_code=r_code,
                     )
                 )
-                allocated = True
-                break
 
-        # Fallback if no single batch had sufficient units: keep original with updated shelf calculation
-        if not allocated:
-            arrival_shelf = max(0, int(line.days_to_expiry_at_arrival))
-            if arrival_shelf <= 0:
-                total_wastage += units_needed
-            repaired_shipments.append(line)
+    # Consolidate identical lines
+    consolidated: Dict[Tuple, ShipmentLine] = {}
+    for sh in repaired_shipments + other_shipments:
+        k = (sh.sku_id, sh.batch_id, sh.warehouse_id, sh.store_id, sh.truck_id, sh.reason_code)
+        if k not in consolidated:
+            consolidated[k] = ShipmentLine(
+                sku_id=sh.sku_id,
+                batch_id=sh.batch_id,
+                warehouse_id=sh.warehouse_id,
+                store_id=sh.store_id,
+                cases_shipped=sh.cases_shipped,
+                units_shipped=sh.units_shipped,
+                truck_id=sh.truck_id,
+                days_to_expiry_at_arrival=sh.days_to_expiry_at_arrival,
+                reason_code=sh.reason_code,
+            )
+        else:
+            existing = consolidated[k]
+            existing.cases_shipped += sh.cases_shipped
+            existing.units_shipped += sh.units_shipped
 
-    # Reconstruct updated PlanResult
-    repaired_plan = PlanResult(
-        plan_id=f"{plan.plan_id}_fefo",
-        solver_status=plan.solver_status,
-        solve_time_seconds=plan.solve_time_seconds,
-        total_freight_cost=plan.total_freight_cost,
-        unmet_demand_units=plan.unmet_demand_units,
-        wastage_units=round(total_wastage, 2),
-        truck_utilization_pct=plan.truck_utilization_pct,
-        shipments=repaired_shipments,
+    return PlanResult(
+        plan_id=plan_result.plan_id,
+        solver_status=plan_result.solver_status,
+        solve_time_seconds=plan_result.solve_time_seconds,
+        total_freight_cost=plan_result.total_freight_cost,
+        unmet_demand_units=plan_result.unmet_demand_units,
+        wastage_units=plan_result.wastage_units,
+        truck_utilization_pct=plan_result.truck_utilization_pct,
+        shipments=list(consolidated.values()),
     )
 
-    return repaired_plan
 
+def assert_zero_fefo_violations(plan_result: PlanResult, db_path: Optional[str] = None):
+    """
+    Asserts strictly 0 FEFO violations remain:
+    No warehouse may leave an older eligible batch unpicked while shipping a newer batch of the same SKU.
+    """
+    skus_df, _, batches_df = load_fefo_metadata(db_path)
 
-if __name__ == "__main__":
-    from common.contracts import TargetDemand
-    from solver.optimizer import solve_allocation
+    sku_pack_size = {str(r["sku_id"]): int(r.get("case_pack_size", 1)) for _, r in skus_df.iterrows()}
+    batch_expiry = {}
+    batch_wh_sku = {}
+    batch_qty = {}
 
-    print("Running FEFO Repair self-test...")
-    skus_df, lanes_df, batches_df = load_optimizer_data()
+    for _, row in batches_df.iterrows():
+        b_id = str(row["batch_id"])
+        w_id = str(row["warehouse_id"])
+        s_id = str(row["sku_id"])
+        batch_expiry[b_id] = int(row.get("days_to_expiry", 30))
+        batch_wh_sku[b_id] = (w_id, s_id)
+        batch_qty[b_id] = float(row.get("quantity", 0))
 
-    test_skus = skus_df["sku_id"].unique()[:3]
-    test_stores = lanes_df["store_id"].unique()[:2]
+    shipped_cases: Dict[str, int] = {}
+    for sh in plan_result.shipments:
+        shipped_cases[sh.batch_id] = shipped_cases.get(sh.batch_id, 0) + sh.cases_shipped
 
-    demands = [
-        TargetDemand(
-            sku_id=str(s),
-            store_id=str(st),
-            target_q_demand=60.0,
-            p90_demand=80.0,
-            p50_demand=50.0,
-            projected_stock_delivery=10.0,
-        )
-        for s in test_skus
-        for st in test_stores
-    ]
+    batches_by_group: Dict[Tuple[str, str], List[str]] = {}
+    for b_id, group in batch_wh_sku.items():
+        if group not in batches_by_group:
+            batches_by_group[group] = []
+        batches_by_group[group].append(b_id)
 
-    initial_plan = solve_allocation(demands)
-    print(f"Initial Plan status: {initial_plan.solver_status}, Shipments: {len(initial_plan.shipments)}")
+    for group, b_list in batches_by_group.items():
+        w_id, s_id = group
+        k_s = sku_pack_size.get(s_id, 1)
+        sorted_batches = sorted(b_list, key=lambda b: batch_expiry[b])
 
-    repaired_plan = repair_plan_fefo(initial_plan, batches_df=batches_df, lanes_df=lanes_df, skus_df=skus_df)
-    print(f"Repaired Plan wastage: {repaired_plan.wastage_units} units")
+        for i, b_older in enumerate(sorted_batches):
+            older_cap = int(batch_qty[b_older] // k_s)
+            older_shipped = shipped_cases.get(b_older, 0)
+            older_unpicked = older_cap - older_shipped
 
-    audit = validate_fefo_compliance(repaired_plan, batches_df, lanes_df)
-    print(f"FEFO Compliance Audit: {audit['is_compliant']} (Violations: {audit['violation_count']})")
-    assert audit["is_compliant"] or audit["violation_count"] == 0, "Expected compliant FEFO schedule"
-    print("FEFO REPAIR TESTS PASSED SUCCESSFULLY!")
+            if older_unpicked > 0:
+                for b_newer in sorted_batches[i + 1:]:
+                    newer_shipped = shipped_cases.get(b_newer, 0)
+                    if newer_shipped > 0 and batch_expiry[b_newer] > batch_expiry[b_older]:
+                        raise AssertionError(
+                            f"FEFO Violation at Warehouse '{w_id}' for SKU '{s_id}': "
+                            f"Older Batch '{b_older}' (days_to_expiry={batch_expiry[b_older]}) has {older_unpicked} unpicked cases, "
+                            f"while newer Batch '{b_newer}' (days_to_expiry={batch_expiry[b_newer]}) shipped {newer_shipped} cases!"
+                        )

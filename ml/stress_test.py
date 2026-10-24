@@ -6,7 +6,10 @@ import pandas as pd
 
 from common.contracts import PlanResult, TargetDemand, ShipmentLine
 
-DB_PATH = "optiroute_data.sqlite"
+from common.db import DB_PATH
+
+
+NB_DISPERSION = 8.0  # Negative Binomial size parameter: variance = mean + mean^2 / NB_DISPERSION
 
 
 def evaluate_plan_risk(
@@ -14,13 +17,15 @@ def evaluate_plan_risk(
     target_demands: List[TargetDemand],
     num_scenarios: int = 500,
     random_seed: int = 42,
+    shock_sigma: float = 0.15,
 ) -> Dict[str, Any]:
     """
     Vectorized Monte Carlo stress-tester evaluating plan resilience across 500 scenarios.
-    
-    Perturbs P50 store-SKU demand by regional lognormal shocks beta ~ LogNormal(0, 0.15),
-    samples Poisson demand, computes inventory coverage, stockout costs, fill rates,
-    and CVaR-95 tail risk.
+
+    Each scenario draws a regional shock beta ~ LogNormal(0, shock_sigma) shared by all stores
+    in a region, then samples Negative Binomial horizon demand around beta * P50 per store-SKU.
+    Reports the fill-rate distribution, its CVaR95 (mean of the worst 5% of scenarios),
+    the stockout cost in those worst scenarios, and the store-SKU pairs most likely to run out.
     """
     if not target_demands:
         return {
@@ -30,81 +35,65 @@ def evaluate_plan_risk(
             "scenarios_evaluated": 0,
         }
 
-    # 1. Connect to SQLite and fetch SKU margins
     conn = sqlite3.connect(DB_PATH)
-    df_skus = pd.read_sql_query("SELECT sku_id, margin FROM skus", conn)
+    df_skus = pd.read_sql_query("SELECT sku_id, margin, unit_cost FROM skus", conn)
     conn.close()
-    margin_map = dict(zip(df_skus["sku_id"], df_skus["margin"]))
+    penalty_map = dict(zip(df_skus["sku_id"], df_skus["margin"] + 0.5 * df_skus["unit_cost"]))
 
-    # 2. Extract arrays for all (store_id, sku_id) pairs
-    unique_stores = sorted(list(set(td.store_id for td in target_demands)))
-    store_to_region = {}
-    for s in unique_stores:
+    def region_of(store_id: str) -> int:
         try:
-            # Stores are formatted like 'STORE_01' -> (index - 1) % 3
-            s_idx = int(s.replace("STORE_", "")) - 1
-            store_to_region[s] = s_idx % 3
+            return (int(store_id.replace("STORE_", "")) - 1) % 3
         except (ValueError, TypeError):
-            store_to_region[s] = 0
+            return 0
 
-    pair_regions = np.array([store_to_region.get(td.store_id, 0) for td in target_demands])
+    pair_regions = np.array([region_of(td.store_id) for td in target_demands])
     p50_array = np.array([td.p50_demand for td in target_demands], dtype=np.float64)
     proj_stock_array = np.array([td.projected_stock_delivery for td in target_demands], dtype=np.float64)
-    margins_array = np.array([margin_map.get(td.sku_id, 0.0) for td in target_demands], dtype=np.float64)
+    penalty_array = np.array([penalty_map.get(td.sku_id, 0.0) for td in target_demands], dtype=np.float64)
 
-    # 3. Compute available inventory = projected_stock_delivery + shipped units from plan_result
-    shipped_map = {}
-    if plan_result and plan_result.shipments:
-        for s in plan_result.shipments:
-            key = (s.store_id, s.sku_id)
-            shipped_map[key] = shipped_map.get(key, 0) + s.units_shipped
+    shipped_map: Dict[tuple, int] = {}
+    for s in (plan_result.shipments if plan_result else []):
+        shipped_map[(s.store_id, s.sku_id)] = shipped_map.get((s.store_id, s.sku_id), 0) + s.units_shipped
+    shipped_array = np.array([shipped_map.get((td.store_id, td.sku_id), 0) for td in target_demands], dtype=np.float64)
+    available_inventory = proj_stock_array + shipped_array
 
-    shipped_array = np.array(
-        [shipped_map.get((td.store_id, td.sku_id), 0) for td in target_demands],
-        dtype=np.float64,
-    )
-    available_inventory = proj_stock_array + shipped_array  # Shape: (num_pairs,)
-
-    # 4. Vectorized demand simulation for 500 scenarios
     rng = np.random.default_rng(random_seed)
-    num_regions = 3
-    # Regional shock factor beta ~ LogNormal(mean=0.0, sigma=0.15)
-    beta_regions = rng.lognormal(mean=0.0, sigma=0.15, size=(num_scenarios, num_regions))
-    beta = beta_regions[:, pair_regions]  # Shape: (num_scenarios, num_pairs)
+    beta_regions = rng.lognormal(mean=0.0, sigma=shock_sigma, size=(num_scenarios, 3))
+    mean = np.maximum(0.01, p50_array * beta_regions[:, pair_regions])
+    # numpy parameterises NB by (n, p) with mean n(1-p)/p
+    p = NB_DISPERSION / (NB_DISPERSION + mean)
+    simulated_demand = rng.negative_binomial(NB_DISPERSION, p)
 
-    lam = np.maximum(0.01, p50_array * beta)
-    simulated_demand = rng.poisson(lam)  # Shape: (num_scenarios, num_pairs)
+    delivered = np.minimum(simulated_demand, available_inventory)
+    unmet = np.maximum(0, simulated_demand - available_inventory)
+    scenario_fill = delivered.sum(axis=1) / np.maximum(simulated_demand.sum(axis=1), 1e-9)
+    scenario_cost = (unmet * penalty_array).sum(axis=1)
 
-    # 5. Calculate delivered, unmet, stockout costs, and fill rate
-    delivered_units = np.minimum(simulated_demand, available_inventory)
-    unmet_units = np.maximum(0, simulated_demand - available_inventory)
-
-    # Stockout cost = sum(unmet_units * sku_margin)
-    scenario_stockout_costs = np.sum(unmet_units * margins_array, axis=1)  # Shape: (num_scenarios,)
-
-    # Scenario fill rate = sum(delivered_units) / sum(simulated_demand)
-    total_delivered = np.sum(delivered_units, axis=1)
-    total_demand = np.sum(simulated_demand, axis=1)
-    scenario_fill_rates = total_delivered / np.maximum(total_demand, 1e-9)
-
-    # 6. Compute summary metrics across scenarios
-    # median_fill_rate: 50th percentile of scenario fill rates (float percentage)
-    median_fill_rate = float(round(float(np.percentile(scenario_fill_rates * 100.0, 50)), 2))
-
-    # p_stockout: percentage of scenarios where unmet demand > 0
-    total_unmet = np.sum(unmet_units, axis=1)
-    p_stockout = float(round(float(np.mean(total_unmet > 0) * 100.0), 2))
-
-    # cvar_95_unmet_cost: average stockout financial loss in worst 5% of simulated scenarios
     worst_n = max(1, int(round(num_scenarios * 0.05)))
-    sorted_costs = np.sort(scenario_stockout_costs)
-    cvar_95_unmet_cost = float(round(float(np.mean(sorted_costs[-worst_n:])), 2))
+    worst_idx = np.argsort(scenario_fill)[:worst_n]
+    pair_stockout_prob = (unmet > 0).mean(axis=0)
+
+    at_risk = []
+    for i in np.argsort(-pair_stockout_prob)[:8]:
+        td = target_demands[i]
+        at_risk.append({
+            "sku_id": td.sku_id,
+            "store_id": td.store_id,
+            "stockout_probability": round(float(pair_stockout_prob[i]), 3),
+            "available_units": round(float(available_inventory[i]), 1),
+            "median_demand_units": round(float(p50_array[i]), 1),
+        })
 
     return {
-        "median_fill_rate": median_fill_rate,
-        "p_stockout": p_stockout,
-        "cvar_95_unmet_cost": cvar_95_unmet_cost,
         "scenarios_evaluated": int(num_scenarios),
+        "median_fill_rate": round(float(np.median(scenario_fill) * 100.0), 2),
+        "cvar95_fill_rate": round(float(scenario_fill[worst_idx].mean() * 100.0), 2),
+        # Share of store-SKU pairs that run short, averaged over scenarios
+        "p_stockout": round(float((unmet > 0).mean() * 100.0), 2),
+        "cvar_95_unmet_cost": round(float(scenario_cost[worst_idx].mean()), 2),
+        "expected_unmet_cost": round(float(scenario_cost.mean()), 2),
+        "fill_rate_samples": [round(float(x) * 100.0, 2) for x in scenario_fill],
+        "top_at_risk": at_risk,
     }
 
 

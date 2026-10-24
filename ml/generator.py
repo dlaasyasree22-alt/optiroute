@@ -128,8 +128,38 @@ def generate_optiroute_dataset(db_path='optiroute_data.sqlite', seed=42):
     df_sales.to_sql('sales_history', conn, if_exists='replace', index=False)
     df_batches.to_sql('inventory_batches', conn, if_exists='replace', index=False)
     conn.close()
+    ensure_store_inventory(db_path, seed=seed)
 
     print(f"Generated {db_path} with {len(df_sales):,} sales rows and {len(df_batches)} batches.")
+
+def ensure_store_inventory(db_path='optiroute_data.sqlite', seed=42, force=False):
+    """
+    Seeds store on-hand stock at the planning day T as 1 to 4 days of each pair's
+    recent average demand. Uses its own RNG so the other tables stay byte-identical.
+    """
+    conn = sqlite3.connect(db_path)
+    try:
+        exists = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='store_inventory'"
+        ).fetchone()
+        if exists and not force:
+            return
+        recent = pd.read_sql_query(
+            """SELECT store_id, sku_id, AVG(units_demanded) AS avg_daily
+               FROM sales_history
+               WHERE date >= (SELECT DATE(MAX(date), '-27 day') FROM sales_history)
+               GROUP BY store_id, sku_id ORDER BY store_id, sku_id""",
+            conn,
+        )
+        rng = np.random.default_rng(seed + 1)
+        days_cover = rng.uniform(1.0, 4.0, size=len(recent))
+        recent['on_hand_units'] = np.round(recent['avg_daily'] * days_cover).astype(int)
+        recent[['store_id', 'sku_id', 'on_hand_units']].to_sql(
+            'store_inventory', conn, if_exists='replace', index=False
+        )
+    finally:
+        conn.close()
+
 
 if __name__ == '__main__':
     generate_optiroute_dataset()

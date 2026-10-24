@@ -6,16 +6,23 @@ from typing import List
 
 from common.contracts import TargetDemand
 
-DB_PATH = "optiroute_data.sqlite"
+from common.db import DB_PATH
 
 
-def generate_target_demands(cycle_date: str = "2026-10-26") -> List[TargetDemand]:
+_MODEL_CACHE = {}
+
+
+def generate_target_demands(cycle_date: str = "2026-10-26", horizon_days: int = 7) -> List[TargetDemand]:
     """
     Load sales history and SKUs from SQLite, correct for censored demand,
     train LightGBM quantile regression models (P50 and P90), calculate
     the overage-adjusted newsvendor critical ratio, interpolate target demand,
     and return a list of TargetDemand contract objects.
     """
+    if "trained" in _MODEL_CACHE:
+        df_sales, df_skus, model_p50, model_p90, feature_cols = _MODEL_CACHE["trained"]
+        return _build_targets(df_sales, df_skus, model_p50, model_p90, feature_cols, cycle_date, horizon_days)
+
     # 1. Connect to SQLite and load tables
     conn = sqlite3.connect(DB_PATH)
     df_sales = pd.read_sql_query(
@@ -84,24 +91,28 @@ def generate_target_demands(cycle_date: str = "2026-10-26") -> List[TargetDemand
     )
     model_p90.fit(X_train, y_train)
 
-    # 5. Build features for prediction on cycle_date
-    cycle_dt = pd.to_datetime(cycle_date)
-    pred_dayofweek = cycle_dt.dayofweek
+    _MODEL_CACHE["trained"] = (df_sales, df_skus, model_p50, model_p90, feature_cols)
+    return _build_targets(df_sales, df_skus, model_p50, model_p90, feature_cols, cycle_date, horizon_days)
 
-    # Extract latest rolling feature state for each (store_id, sku_id)
+
+def _build_targets(df_sales, df_skus, model_p50, model_p90, feature_cols, cycle_date, horizon_days):
+    # 5. Predict each day of the horizon from the latest rolling state per (store_id, sku_id)
+    cycle_dt = pd.to_datetime(cycle_date)
     latest_features = df_sales.groupby(["store_id", "sku_id"]).last().reset_index()
-    latest_features["dayofweek"] = pred_dayofweek
     latest_features["is_promo"] = 0
 
-    X_pred = latest_features[feature_cols]
-    p50_preds = model_p50.predict(X_pred)
-    p90_preds = model_p90.predict(X_pred)
+    p50_total = np.zeros(len(latest_features))
+    p90_total = np.zeros(len(latest_features))
+    for d in range(horizon_days):
+        latest_features["dayofweek"] = (cycle_dt + pd.Timedelta(days=d)).dayofweek
+        X_pred = latest_features[feature_cols]
+        p50 = np.maximum(model_p50.predict(X_pred), 0.0)
+        # Ensure quantile monotonicity
+        p50_total += p50
+        p90_total += np.maximum(model_p90.predict(X_pred), p50)
 
-    # Ensure quantile monotonicity
-    p90_preds = np.maximum(p90_preds, p50_preds)
-
-    latest_features["p50_demand"] = p50_preds
-    latest_features["p90_demand"] = p90_preds
+    latest_features["p50_demand"] = p50_total
+    latest_features["p90_demand"] = p90_total
 
     # 6. Calculate overage-adjusted newsvendor critical ratio:
     # q_s = clip(margin / (margin + holding_cost + unit_cost * is_perishable), 0.50, 0.90)
@@ -121,7 +132,19 @@ def generate_target_demands(cycle_date: str = "2026-10-26") -> List[TargetDemand
         merged["p90_demand"] - merged["p50_demand"]
     )
 
-    # 8. Return list of common.contracts.TargetDemand objects
+    # 8. Projected stock at delivery: store on-hand minus median demand during the
+    # fastest lane's transit time (sales that happen before the truck arrives)
+    conn = sqlite3.connect(DB_PATH)
+    on_hand = pd.read_sql_query("SELECT * FROM store_inventory", conn)
+    lead = pd.read_sql_query(
+        "SELECT store_id, MIN(lead_time_days) AS lead_days FROM lanes GROUP BY store_id", conn
+    )
+    conn.close()
+    merged = merged.merge(on_hand, on=["store_id", "sku_id"], how="left").merge(lead, on="store_id", how="left")
+    merged["on_hand_units"] = merged["on_hand_units"].fillna(0.0)
+    daily_p50 = merged["p50_demand"] / horizon_days
+    merged["projected"] = (merged["on_hand_units"] - daily_p50 * merged["lead_days"].fillna(1)).clip(lower=0.0)
+
     target_demands = []
     for _, row in merged.iterrows():
         target_demands.append(
@@ -131,7 +154,9 @@ def generate_target_demands(cycle_date: str = "2026-10-26") -> List[TargetDemand
                 target_q_demand=float(round(row["d_hat"], 2)),
                 p90_demand=float(round(row["p90_demand"], 2)),
                 p50_demand=float(round(row["p50_demand"], 2)),
-                projected_stock_delivery=float(round(row["d_hat"], 2)),
+                projected_stock_delivery=float(round(row["projected"], 2)),
+                horizon_days=int(horizon_days),
+                on_hand_units=float(row["on_hand_units"]),
             )
         )
 

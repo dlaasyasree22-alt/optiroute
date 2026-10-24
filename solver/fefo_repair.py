@@ -4,6 +4,7 @@ Implements an O(|B|) post-solve swap pass to eliminate FEFO violations by priori
 older eligible batches while preserving total units, store allocations, and truck assignments.
 """
 
+import dataclasses
 import os
 import sys
 import sqlite3
@@ -53,7 +54,7 @@ def load_fefo_metadata(db_path: Optional[str] = None) -> Tuple[pd.DataFrame, pd.
     sku_mappings = {
         "sku_id": ["sku_id", "id", "sku", "product_id"],
         "case_pack_size": ["case_pack_size", "pack_size", "case_pack", "case_size", "pack", "k_s"],
-        "min_shelf_life": ["min_shelf_life", "min_delivery_shelf_life", "shelf_life_min", "mu_s"],
+        "min_shelf_life": ["min_life_at_delivery", "min_shelf_life", "min_delivery_shelf_life", "shelf_life_min", "mu_s"],
         "margin": ["margin", "unit_margin", "profit_margin", "selling_price", "price", "m_s"],
     }
     skus_df = _normalize_columns(skus_df, sku_mappings)
@@ -75,7 +76,7 @@ def load_fefo_metadata(db_path: Optional[str] = None) -> Tuple[pd.DataFrame, pd.
         "batch_id": ["batch_id", "id", "batch", "lot_id", "lot"],
         "sku_id": ["sku_id", "sku", "product_id"],
         "warehouse_id": ["warehouse_id", "warehouse", "source_warehouse", "dc_id", "dc"],
-        "quantity": ["quantity", "batch_quantity", "units", "stock", "inventory_qty", "qty", "q_b"],
+        "quantity": ["quantity_units", "quantity", "batch_quantity", "units", "stock", "inventory_qty", "qty", "q_b"],
         "days_to_expiry": ["days_to_expiry", "expiry_days", "shelf_life_remaining", "days_left", "shelf_life_days", "d_b"],
     }
     batches_df = _normalize_columns(batches_df, batch_mappings)
@@ -233,64 +234,57 @@ def repair_fefo_violations(plan_result: PlanResult, db_path: Optional[str] = Non
             existing.cases_shipped += sh.cases_shipped
             existing.units_shipped += sh.units_shipped
 
-    return PlanResult(
-        plan_id=plan_result.plan_id,
-        solver_status=plan_result.solver_status,
-        solve_time_seconds=plan_result.solve_time_seconds,
-        total_freight_cost=plan_result.total_freight_cost,
-        unmet_demand_units=plan_result.unmet_demand_units,
-        wastage_units=plan_result.wastage_units,
-        truck_utilization_pct=plan_result.truck_utilization_pct,
-        shipments=list(consolidated.values()),
-    )
+    return dataclasses.replace(plan_result, shipments=list(consolidated.values()))
 
 
-def assert_zero_fefo_violations(plan_result: PlanResult, db_path: Optional[str] = None):
+def count_fefo_violations(plan_result: PlanResult, db_path: Optional[str] = None) -> List[str]:
     """
-    Asserts strictly 0 FEFO violations remain:
-    No warehouse may leave an older eligible batch unpicked while shipping a newer batch of the same SKU.
+    A violation: a warehouse ships a newer batch of a SKU to a store while an older batch
+    of the same SKU sits unpicked, and that older batch would still arrive with at least
+    the minimum delivery shelf life on that lane (so it could legally have gone instead).
     """
-    skus_df, _, batches_df = load_fefo_metadata(db_path)
+    skus_df, lanes_df, batches_df = load_fefo_metadata(db_path)
 
     sku_pack_size = {str(r["sku_id"]): int(r.get("case_pack_size", 1)) for _, r in skus_df.iterrows()}
-    batch_expiry = {}
-    batch_wh_sku = {}
-    batch_qty = {}
-
+    sku_min_life = {str(r["sku_id"]): int(r.get("min_shelf_life", 0)) for _, r in skus_df.iterrows()}
+    lead = {(str(r["warehouse_id"]), str(r["store_id"])): int(r.get("lead_time", 1)) for _, r in lanes_df.iterrows()}
+    batch_expiry, batch_wh_sku, batch_qty = {}, {}, {}
     for _, row in batches_df.iterrows():
         b_id = str(row["batch_id"])
-        w_id = str(row["warehouse_id"])
-        s_id = str(row["sku_id"])
         batch_expiry[b_id] = int(row.get("days_to_expiry", 30))
-        batch_wh_sku[b_id] = (w_id, s_id)
+        batch_wh_sku[b_id] = (str(row["warehouse_id"]), str(row["sku_id"]))
         batch_qty[b_id] = float(row.get("quantity", 0))
 
     shipped_cases: Dict[str, int] = {}
+    shipped_stores: Dict[str, set] = {}
     for sh in plan_result.shipments:
         shipped_cases[sh.batch_id] = shipped_cases.get(sh.batch_id, 0) + sh.cases_shipped
+        shipped_stores.setdefault(sh.batch_id, set()).add(sh.store_id)
 
     batches_by_group: Dict[Tuple[str, str], List[str]] = {}
     for b_id, group in batch_wh_sku.items():
-        if group not in batches_by_group:
-            batches_by_group[group] = []
-        batches_by_group[group].append(b_id)
+        batches_by_group.setdefault(group, []).append(b_id)
 
-    for group, b_list in batches_by_group.items():
-        w_id, s_id = group
+    violations = []
+    for (w_id, s_id), b_list in batches_by_group.items():
         k_s = sku_pack_size.get(s_id, 1)
         sorted_batches = sorted(b_list, key=lambda b: batch_expiry[b])
-
         for i, b_older in enumerate(sorted_batches):
-            older_cap = int(batch_qty[b_older] // k_s)
-            older_shipped = shipped_cases.get(b_older, 0)
-            older_unpicked = older_cap - older_shipped
-
-            if older_unpicked > 0:
-                for b_newer in sorted_batches[i + 1:]:
-                    newer_shipped = shipped_cases.get(b_newer, 0)
-                    if newer_shipped > 0 and batch_expiry[b_newer] > batch_expiry[b_older]:
-                        raise AssertionError(
-                            f"FEFO Violation at Warehouse '{w_id}' for SKU '{s_id}': "
-                            f"Older Batch '{b_older}' (days_to_expiry={batch_expiry[b_older]}) has {older_unpicked} unpicked cases, "
-                            f"while newer Batch '{b_newer}' (days_to_expiry={batch_expiry[b_newer]}) shipped {newer_shipped} cases!"
+            if int(batch_qty[b_older] // k_s) - shipped_cases.get(b_older, 0) <= 0:
+                continue
+            for b_newer in sorted_batches[i + 1:]:
+                if batch_expiry[b_newer] <= batch_expiry[b_older]:
+                    continue
+                for st in shipped_stores.get(b_newer, ()):
+                    if batch_expiry[b_older] - lead.get((w_id, st), 1) >= sku_min_life.get(s_id, 0):
+                        violations.append(
+                            f"{w_id}/{s_id}: older {b_older} left unpicked while newer {b_newer} shipped to {st}"
                         )
+    return violations
+
+
+def assert_zero_fefo_violations(plan_result: PlanResult, db_path: Optional[str] = None):
+    """Raises if count_fefo_violations finds any violation."""
+    violations = count_fefo_violations(plan_result, db_path)
+    if violations:
+        raise AssertionError("FEFO Violation: " + violations[0])

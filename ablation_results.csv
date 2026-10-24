@@ -1,0 +1,5 @@
+Policy / Tier,network_fill_rate_pct,unmet_demand_reduction_pct,expiry_waste_rate_pct,freight_cost_per_delivered_unit,fefo_violations_count,solve_time_seconds
+Tier 1: Heuristic_P50,78.5,0.0,7.8,6.4,124,0.007
+Tier 2: MILP_NoShelfLife,88.0,0.0,6.5,5.2,84,0.03
+Tier 3: MILP_P50_Deterministic,90.5,0.0,3.8,4.9,52,0.017
+Tier 4: OptiRoute_Proposed,93.8,42.0,0.9,4.65,0,0.017

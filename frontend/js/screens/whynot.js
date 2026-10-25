@@ -29,7 +29,8 @@ export function renderWhyNot(view) {
           <div class="field"><label for="wsku">Product</label>
             <select class="input" id="wsku">${meta.skus.map((s) => `<option value="${s.sku_id}" ${s.sku_id === sku ? "selected" : ""}>${skuName(s.sku_id, meta)}</option>`).join("")}</select></div>
           <div class="field"><label for="wunits">At least (units)</label>
-            <input class="input" id="wunits" type="number" min="1" step="10" value="${last?.min_units || 200}" required></div>
+            <input class="input" id="wunits" type="number" min="1" step="1" value="${last?.min_units || 200}" required>
+            <div class="hint" id="wpack"></div></div>
           <div class="field"><label for="wwh">From warehouse</label>
             <select class="input" id="wwh">${meta.warehouses.map((w) => `<option value="${w}" ${w === wh ? "selected" : ""}>${whName(w)}</option>`).join("")}</select></div>
           <div class="field"><label for="wstore">To store</label>
@@ -50,11 +51,14 @@ export function renderWhyNot(view) {
   const today = () => {
     const s = form.wsku.value, st = form.wstore.value, w = form.wwh.value;
     const lines = state.plan.shipments.filter((x) => x.sku_id === s && x.destination_store === st);
+    const pack = state.meta?.skus?.find((x) => x.sku_id === s)?.case_pack_size;
+    view.querySelector("#wpack").textContent = pack ? `Ships in cases of ${pack}, so this is rounded up to whole cases.` : "";
     const fromWh = lines.filter((x) => x.source_warehouse === w).reduce((a, x) => a + x.units_shipped, 0);
     const total = lines.reduce((a, x) => a + x.units_shipped, 0);
     const sources = [...new Set(lines.map((x) => x.source_warehouse))];
     view.querySelector("#today").innerHTML = total
-      ? `<b>Today's plan:</b> ${storeName(st)} gets ${num(total)} units of this product from ${sources.map(whName).join(" and ")}${fromWh ? `, including ${num(fromWh)} from ${whName(w)}` : ""}.`
+      ? `<b>Today's plan:</b> ${storeName(st)} gets ${num(total)} units of this product from ${sources.map(whName).join(" and ")}${
+          fromWh && sources.length > 1 ? `, including ${num(fromWh)} from ${whName(w)}` : ""}.`
       : `<b>Today's plan:</b> ${storeName(st)} gets none of this product this week.`;
   };
   ["wsku", "wstore", "wwh"].forEach((id) => form[id].addEventListener("change", today));

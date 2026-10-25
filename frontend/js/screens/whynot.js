@@ -56,14 +56,23 @@ export function renderWhyNot(view) {
     const fromWh = lines.filter((x) => x.source_warehouse === w).reduce((a, x) => a + x.units_shipped, 0);
     const total = lines.reduce((a, x) => a + x.units_shipped, 0);
     const sources = [...new Set(lines.map((x) => x.source_warehouse))];
-    const current = total
-      ? `${storeName(st)} gets ${num(total)} units from ${sources.map((x) => `${whName(x)} (${num(lines.filter((l) => l.source_warehouse === x).reduce((a, l) => a + l.units_shipped, 0))})`).join(" and ")}${
-          fromWh ? "" : `, none from ${whName(w)}`}.`
-      : `${storeName(st)} gets none of this product this week.`;
-    view.querySelector("#today").innerHTML = `
-<b>Current plan:</b> ${current}`;
+    const product = skuName(s, state.meta);
+    const others = sources
+      .filter((x) => x !== w)
+      .map((x) => `${num(lines.filter((l) => l.source_warehouse === x).reduce((a, l) => a + l.units_shipped, 0))} from ${whName(x)}`);
+    let text;
+    if (fromWh) {
+      text = `${whName(w)} sends <b>${num(fromWh)} units</b> of ${product} to ${storeName(st)}.` +
+        (others.length ? ` ${storeName(st)} also gets ${others.join(" and ")}.` : "");
+    } else if (total) {
+      const where = sources.length === 1 ? `its ${num(total)} units from ${whName(sources[0])}` : others.join(" and ");
+      text = `${whName(w)} sends <b>nothing</b> of ${product} to ${storeName(st)}. The store gets ${where}.`;
+    } else {
+      text = `${storeName(st)} gets <b>no</b> ${product} this week from any warehouse.`;
+    }
+    view.querySelector("#today").innerHTML = `<b>Current plan:</b> ${text}`;
   };
-  ["wsku", "wstore", "wwh"].forEach((id) => form[id].addEventListener("input", today));
+  ["wsku", "wstore", "wwh"].forEach((id) => ["change", "input"].forEach((ev) => form[id].addEventListener(ev, today)));
   today();
   paintHistory(view);
   const prev = state.whyNot.at(-1);

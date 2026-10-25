@@ -225,7 +225,6 @@ stages.forEach((s) => stageObserver.observe(s));
 
 // ---------- Results: real figures from a recorded engine run, counted up on view ----------
 const fmtPct = (v) => `${v.toFixed(1)}%`;
-const fmtInr = (v) => `₹${v.toFixed(2)}`;
 const fmtInt = (v) => `${Math.round(v)}`;
 
 async function loadResults() {
@@ -243,8 +242,8 @@ async function loadResults() {
     const data = [
       { value: k.projected_fill_rate * 100, base: b.projected_fill_rate * 100, fmt: fmtPct, max: 100,
         label: "of expected demand met", sub: `${Math.round(b.unmet_demand_units - k.unmet_demand_units).toLocaleString("en-IN")} more units on shelves this week` },
-      { value: k.freight_per_unit_inr, base: b.freight_per_unit_inr, fmt: fmtInr, max: Math.max(k.freight_per_unit_inr, b.freight_per_unit_inr),
-        label: "freight per unit delivered", sub: "Fuller trucks on better lanes" },
+      { value: k.wastage_rate_pct, base: b.wastage_rate_pct, fmt: (v) => `${v.toFixed(2)}%`, max: Math.max(k.wastage_rate_pct, b.wastage_rate_pct),
+        label: "of stock expected to expire on shelves", sub: "Perishables go where they sell before their date" },
       { value: D.fefo_violations.mean, base: A.fefo_violations.mean, fmt: fmtInt, max: A.fefo_violations.mean,
         label: "batches shipped out of expiry order", sub: `Pro-rata ships ${A.fefo_violations.mean} out of order across the network` },
     ];

@@ -57,20 +57,23 @@ def generate_target_demands(cycle_date: str = "2026-10-26", horizon_days: int = 
         mask_stockout, "rolling_7d_median"
     ]
 
-    # 3. Create feature columns: 7-day rolling mean, 14-day rolling mean, dayofweek, and is_promo
+    # 3. Create feature columns: 7-day rolling mean, 14-day rolling mean, dayofweek, and is_promo.
+    # Rolling means use only days before the target day (shift(1)), so the model never sees
+    # the value it is learning to predict.
     df_sales["rolling_7d_mean"] = df_sales.groupby(["store_id", "sku_id"])[
         "imputed_units_sold"
-    ].transform(lambda x: x.rolling(window=7, min_periods=1).mean())
+    ].transform(lambda x: x.shift(1).rolling(window=7, min_periods=1).mean())
 
     df_sales["rolling_14d_mean"] = df_sales.groupby(["store_id", "sku_id"])[
         "imputed_units_sold"
-    ].transform(lambda x: x.rolling(window=14, min_periods=1).mean())
+    ].transform(lambda x: x.shift(1).rolling(window=14, min_periods=1).mean())
 
     df_sales["dayofweek"] = df_sales["date"].dt.dayofweek
 
     feature_cols = ["rolling_7d_mean", "rolling_14d_mean", "dayofweek", "is_promo"]
-    X_train = df_sales[feature_cols]
-    y_train = df_sales["imputed_units_sold"]
+    train = df_sales.dropna(subset=["rolling_7d_mean"])
+    X_train = train[feature_cols]
+    y_train = train["imputed_units_sold"]
 
     # 4. Train two LightGBM quantile regression models: P50 (alpha=0.5) and P90 (alpha=0.9)
     model_p50 = lgb.LGBMRegressor(
@@ -99,6 +102,10 @@ def _build_targets(df_sales, df_skus, model_p50, model_p90, feature_cols, cycle_
     # 5. Predict each day of the horizon from the latest rolling state per (store_id, sku_id)
     cycle_dt = pd.to_datetime(cycle_date)
     latest_features = df_sales.groupby(["store_id", "sku_id"]).last().reset_index()
+    # The forecast starts the day after the history ends, so its rolling state includes the last day
+    recent = df_sales.groupby(["store_id", "sku_id"])["imputed_units_sold"]
+    latest_features["rolling_7d_mean"] = recent.apply(lambda x: x.iloc[-7:].mean()).values
+    latest_features["rolling_14d_mean"] = recent.apply(lambda x: x.iloc[-14:].mean()).values
     latest_features["is_promo"] = 0
 
     p50_total = np.zeros(len(latest_features))

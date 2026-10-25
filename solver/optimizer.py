@@ -83,7 +83,7 @@ def load_optimizer_data(db_path: Optional[str] = None) -> Tuple[pd.DataFrame, pd
         "warehouse_id": ["warehouse_id", "source_warehouse", "origin_dc", "origin", "warehouse", "from_dc", "w"],
         "store_id": ["store_id", "destination_store", "destination", "dest_store", "store", "to_store", "l"],
         "fixed_cost": ["fixed_cost", "fixed_truck_cost", "fixed_freight_cost", "truck_cost", "cost_fixed", "fixed_freight", "f_wl"],
-        "variable_cost": ["variable_cost", "variable_freight", "variable_freight_cost", "cost_per_unit", "variable_cost_per_unit", "cost_var", "c_wl"],
+        "variable_cost": ["variable_unit_cost", "variable_cost", "variable_freight", "variable_freight_cost", "cost_per_unit", "variable_cost_per_unit", "cost_var", "c_wl"],
         "lead_time": ["lead_time", "lead_time_days", "transit_days", "transit_time", "tau_wl"],
     }
     lanes_df = _normalize_columns(lanes_df, lane_mappings)
@@ -120,7 +120,7 @@ def solve_allocation(
     enable_post_solve_repair: bool = True,
     use_shelf_life: bool = True,
     mip_gap: float = 0.01,
-    time_limit: float = 10.0,
+    time_limit: float = 20.0,
     closed_lanes: Optional[List[Tuple[str, str]]] = None,
     relax_cases: bool = True,
 ) -> PlanResult:

@@ -110,6 +110,12 @@ export function renderWhyNot(view) {
   });
 }
 
+// Two separately solved plans can differ by up to the 1% optimality gap, so smaller deltas are a tie
+function tolerance() {
+  const k = state.plan.kpis;
+  return 0.01 * (k.total_freight_cost + k.stockout_cost_inr + k.writeoff_cost_inr);
+}
+
 function story(req, res) {
   const d = res.delta_kpis;
   const what = `Sending ${num(req.min_units)} units of ${skuName(req.sku_id, state.meta)} from ${whName(req.source_warehouse)} to ${storeName(req.destination_store)}`;
@@ -122,9 +128,12 @@ function story(req, res) {
       : `fills <strong>${num(-d.delta_stockout_units)} more units</strong> of demand overall`);
   if (Math.abs(d.delta_waste_units) >= 1)
     parts.push(`${d.delta_waste_units > 0 ? "lets" : "saves"} <strong>${num(Math.abs(d.delta_waste_units))} units</strong> ${d.delta_waste_units > 0 ? "expire" : "from expiring"}`);
-  const verdict = d.net_financial_delta_inr > 0
-    ? `Overall your version costs <strong>${inr(d.net_financial_delta_inr)} more</strong> this week, which is why the plan did not do it.`
-    : `Overall your version is <strong>${inr(-d.net_financial_delta_inr)} cheaper</strong>. The difference is within the optimiser's accuracy target, so both plans are reasonable.`;
+  const net = d.net_financial_delta_inr;
+  const verdict = Math.abs(net) < tolerance()
+    ? `Overall the difference is <strong>${inr(Math.abs(net))}</strong>, inside the optimiser's 1% accuracy target of ${inr(tolerance())}. Both plans are about equally good, so this is your call.`
+    : net > 0
+      ? `Overall your version costs <strong>${inr(net)} more</strong> this week, which is why the plan did not do it.`
+      : `Overall your version is <strong>${inr(-net)} cheaper</strong>. Consider adopting it.`;
   return `${what} ${parts.join(", ")}. ${verdict}`;
 }
 
@@ -142,9 +151,10 @@ function paintAnswer(out, req, res) {
   ];
   const scale = Math.max(...items.map((i) => Math.abs(i[1])), Math.abs(d.net_financial_delta_inr), 1);
   const up = d.net_financial_delta_inr > 0;
+  const tie = Math.abs(d.net_financial_delta_inr) < tolerance();
   out.innerHTML = `
-    <div class="verdict ${up ? "watch" : "safe"}">${up ? ICONS.eye : ICONS.check}
-      <div><h2>${up ? `Costs ${inr(d.net_financial_delta_inr)} more` : `Saves ${inr(-d.net_financial_delta_inr)}`}</h2>
+    <div class="verdict ${tie ? "safe" : up ? "watch" : "safe"}">${tie ? ICONS.check : up ? ICONS.eye : ICONS.check}
+      <div><h2>${tie ? "About the same cost" : up ? `Costs ${inr(d.net_financial_delta_inr)} more` : `Saves ${inr(-d.net_financial_delta_inr)}`}</h2>
       <p>Answered in ${res.solve_time_seconds.toFixed(1)} s by re-solving the full plan.</p></div></div>
     <p class="story" style="margin:18px 0">${story(req, res)}</p>
     <h3>Where the money goes</h3>

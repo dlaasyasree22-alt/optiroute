@@ -35,8 +35,11 @@ function paint(body, bt) {
       <h2>The short answer</h2>
       <p class="story" style="margin:6px 0 0">Full OptiRoute (D) serves <strong>${pct(m("D", "fill_rate_pct"))}</strong> of demand against
       <strong>${pct(m("A", "fill_rate_pct"))}</strong> for the pro-rata method (A), with
-      <strong>${num(m("A", "fefo_violations"))} fewer</strong> batches shipped out of expiry order and freight per delivered unit
-      <strong>₹${(m("A", "freight_per_delivered_unit_inr") - m("D", "freight_per_delivered_unit_inr")).toFixed(2)} lower</strong>.</p>
+      <strong>${num(m("A", "fefo_violations"))} fewer</strong> batches shipped out of expiry order and
+      ${m("D", "wastage_rate_pct") < m("A", "wastage_rate_pct") ? `<strong>less expired stock</strong> (${pct(m("D", "wastage_rate_pct"), 2)} against ${pct(m("A", "wastage_rate_pct"), 2)})` : "similar wastage"}.
+      ${m("D", "freight_per_delivered_unit_inr") > m("A", "freight_per_delivered_unit_inr")
+        ? `Serving that extra demand costs ₹${(m("D", "freight_per_delivered_unit_inr") - m("A", "freight_per_delivered_unit_inr")).toFixed(2)} more freight per delivered unit, because pro-rata only uses each store's cheapest lane.`
+        : `Freight per delivered unit is also ₹${(m("A", "freight_per_delivered_unit_inr") - m("D", "freight_per_delivered_unit_inr")).toFixed(2)} lower.`}</p>
       <p class="muted small" style="margin-top:10px">${bt.method} ${term("ci", "What is a 95% interval?")}</p>
     </div>
 

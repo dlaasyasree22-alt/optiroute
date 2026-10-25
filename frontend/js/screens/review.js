@@ -120,7 +120,8 @@ function summary(body) {
 
     <div class="callout" style="margin-top:18px">
       <b>Why total freight is higher than the baseline:</b> this plan ships ${num(k.units_shipped - b.units_shipped)} more units.
-      Each unit delivered costs less to move, and the extra freight is far smaller than the lost sales it prevents
+      ${k.freight_per_unit_inr <= b.freight_per_unit_inr ? "Each unit delivered also costs less to move." : `Reaching more stores uses some longer lanes, so each unit costs ₹${(k.freight_per_unit_inr - b.freight_per_unit_inr).toFixed(2)} more to move.`}
+      The extra ${inrShort(k.total_freight_cost - b.total_freight_cost)} of freight is far smaller than the lost sales it prevents
       (${inrShort(b.stockout_cost_inr - k.stockout_cost_inr)} of lost margin and goodwill avoided). ${term("stockout_cost")}
     </div>
     <div style="margin-top:18px; display:flex; gap:12px; flex-wrap:wrap">

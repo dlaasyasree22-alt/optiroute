@@ -9,52 +9,52 @@
       "label": "Pro-rata (today's spreadsheet method)",
       "metrics": {
         "fill_rate_pct": {
-          "mean": 70.22,
+          "mean": 71.132,
           "ci95": [
-            69.033,
-            71.407
+            69.84,
+            72.423
           ]
         },
         "unmet_demand_pct": {
-          "mean": 29.78,
+          "mean": 28.868,
           "ci95": [
-            28.593,
-            30.967
+            27.577,
+            30.16
           ]
         },
         "wastage_rate_pct": {
-          "mean": 1.971,
+          "mean": 2.055,
           "ci95": [
-            1.871,
-            2.072
+            1.926,
+            2.185
           ]
         },
         "freight_cost_inr": {
-          "mean": 849298.7,
+          "mean": 612309.78,
           "ci95": [
-            849298.7,
-            849298.7
+            612309.78,
+            612309.78
           ]
         },
         "freight_per_delivered_unit_inr": {
-          "mean": 16.018,
+          "mean": 11.727,
           "ci95": [
-            15.748,
-            16.288
+            11.517,
+            11.937
           ]
         },
         "truck_utilization_pct": {
-          "mean": 78.91,
+          "mean": 84.45,
           "ci95": [
-            78.91,
-            78.91
+            84.45,
+            84.45
           ]
         },
         "fefo_violations": {
-          "mean": 153,
+          "mean": 367,
           "ci95": [
-            153,
-            153
+            367,
+            367
           ]
         }
       }
@@ -64,52 +64,52 @@
       "label": "Optimiser on median forecast",
       "metrics": {
         "fill_rate_pct": {
-          "mean": 82.529,
+          "mean": 83.11,
           "ci95": [
-            81.536,
-            83.522
+            82.047,
+            84.173
           ]
         },
         "unmet_demand_pct": {
-          "mean": 17.471,
+          "mean": 16.89,
           "ci95": [
-            16.478,
-            18.464
+            15.827,
+            17.953
           ]
         },
         "wastage_rate_pct": {
-          "mean": 3.314,
+          "mean": 3.536,
           "ci95": [
-            3.123,
-            3.506
+            3.371,
+            3.702
           ]
         },
         "freight_cost_inr": {
-          "mean": 861719.93,
+          "mean": 820473.76,
           "ci95": [
-            861719.93,
-            861719.93
+            820473.76,
+            820473.76
           ]
         },
         "freight_per_delivered_unit_inr": {
-          "mean": 13.824,
+          "mean": 13.444,
           "ci95": [
-            13.657,
-            13.99
+            13.273,
+            13.614
           ]
         },
         "truck_utilization_pct": {
-          "mean": 86.7,
+          "mean": 86.19,
           "ci95": [
-            86.7,
-            86.7
+            86.19,
+            86.19
           ]
         },
         "fefo_violations": {
-          "mean": 61,
+          "mean": 95,
           "ci95": [
-            61,
-            61
+            95,
+            95
           ]
         }
       }
@@ -119,52 +119,52 @@
       "label": "Optimiser on risk-sized forecast",
       "metrics": {
         "fill_rate_pct": {
-          "mean": 83.75,
+          "mean": 84.696,
           "ci95": [
-            82.936,
-            84.563
+            83.821,
+            85.57
           ]
         },
         "unmet_demand_pct": {
-          "mean": 16.25,
+          "mean": 15.304,
           "ci95": [
-            15.437,
-            17.064
+            14.43,
+            16.179
           ]
         },
         "wastage_rate_pct": {
-          "mean": 3.184,
+          "mean": 3.212,
           "ci95": [
-            2.996,
-            3.372
+            3.056,
+            3.368
           ]
         },
         "freight_cost_inr": {
-          "mean": 942690.39,
+          "mean": 931058.16,
           "ci95": [
-            942690.39,
-            942690.39
+            931058.16,
+            931058.16
           ]
         },
         "freight_per_delivered_unit_inr": {
-          "mean": 14.901,
+          "mean": 14.968,
           "ci95": [
-            14.755,
-            15.046
+            14.814,
+            15.122
           ]
         },
         "truck_utilization_pct": {
-          "mean": 88.05,
+          "mean": 86.5,
           "ci95": [
-            88.05,
-            88.05
+            86.5,
+            86.5
           ]
         },
         "fefo_violations": {
-          "mean": 64,
+          "mean": 84,
           "ci95": [
-            64,
-            64
+            84,
+            84
           ]
         }
       }
@@ -174,45 +174,45 @@
       "label": "Full OptiRoute (adds shelf life and FEFO)",
       "metrics": {
         "fill_rate_pct": {
-          "mean": 82.273,
+          "mean": 83.569,
           "ci95": [
-            81.458,
-            83.088
+            82.729,
+            84.409
           ]
         },
         "unmet_demand_pct": {
-          "mean": 17.727,
+          "mean": 16.431,
           "ci95": [
-            16.912,
-            18.542
+            15.591,
+            17.271
           ]
         },
         "wastage_rate_pct": {
-          "mean": 1.645,
+          "mean": 1.729,
           "ci95": [
-            1.519,
-            1.772
+            1.622,
+            1.837
           ]
         },
         "freight_cost_inr": {
-          "mean": 929807.55,
+          "mean": 924682.08,
           "ci95": [
-            929807.55,
-            929807.55
+            924682.08,
+            924682.08
           ]
         },
         "freight_per_delivered_unit_inr": {
-          "mean": 14.961,
+          "mean": 15.066,
           "ci95": [
-            14.812,
-            15.11
+            14.915,
+            15.216
           ]
         },
         "truck_utilization_pct": {
-          "mean": 87.42,
+          "mean": 86.07,
           "ci95": [
-            87.42,
-            87.42
+            86.07,
+            86.07
           ]
         },
         "fefo_violations": {
@@ -230,55 +230,55 @@
       "step": "Optimisation instead of pro-rata",
       "from": "A",
       "to": "B",
-      "fill_rate_pp": 12.31,
-      "wastage_pp": 1.34,
-      "freight_inr": 12421.0
+      "fill_rate_pp": 11.98,
+      "wastage_pp": 1.48,
+      "freight_inr": 208164.0
     },
     {
       "step": "Planning for uncertain demand",
       "from": "B",
       "to": "C",
-      "fill_rate_pp": 1.22,
-      "wastage_pp": -0.13,
-      "freight_inr": 80970.0
+      "fill_rate_pp": 1.59,
+      "wastage_pp": -0.32,
+      "freight_inr": 110584.0
     },
     {
       "step": "Shelf-life rules and FEFO repair",
       "from": "C",
       "to": "D",
-      "fill_rate_pp": -1.48,
-      "wastage_pp": -1.54,
-      "freight_inr": -12883.0
+      "fill_rate_pp": -1.13,
+      "wastage_pp": -1.48,
+      "freight_inr": -6376.0
     }
   ],
   "regimes": [
     {
       "regime": "Normal week",
-      "baseline_fill_rate_pct": 70.22,
-      "optiroute_fill_rate_pct": 82.27,
-      "baseline_wastage_pct": 1.97,
-      "optiroute_wastage_pct": 1.65,
+      "baseline_fill_rate_pct": 71.13,
+      "optiroute_fill_rate_pct": 83.57,
+      "baseline_wastage_pct": 2.06,
+      "optiroute_wastage_pct": 1.73,
       "seeds_optiroute_better": 10,
       "seeds": 10
     },
     {
       "regime": "Demand surge +30%",
-      "baseline_fill_rate_pct": 56.91,
-      "optiroute_fill_rate_pct": 72.1,
-      "baseline_wastage_pct": 1.39,
-      "optiroute_wastage_pct": 0.77,
+      "baseline_fill_rate_pct": 56.23,
+      "optiroute_fill_rate_pct": 72.48,
+      "baseline_wastage_pct": 1.24,
+      "optiroute_wastage_pct": 0.76,
       "seeds_optiroute_better": 10,
       "seeds": 10
     },
     {
       "regime": "Warehouse WH1 offline",
-      "baseline_fill_rate_pct": 66.16,
-      "optiroute_fill_rate_pct": 64.15,
-      "baseline_wastage_pct": 1.44,
-      "optiroute_wastage_pct": 1.09,
+      "baseline_fill_rate_pct": 67.93,
+      "optiroute_fill_rate_pct": 65.43,
+      "baseline_wastage_pct": 1.33,
+      "optiroute_wastage_pct": 1.07,
       "seeds_optiroute_better": 0,
       "seeds": 10
     }
   ],
-  "runtime_seconds": 23.6
+  "runtime_seconds": 45.7
 }

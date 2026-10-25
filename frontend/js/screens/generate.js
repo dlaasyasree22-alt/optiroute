@@ -48,7 +48,6 @@ export function renderGenerate(view) {
 
   view.innerHTML = `
     <div class="page-head" data-enter>
-      <div class="eyebrow">Step 1</div>
       <h1>Generate this week's plan</h1>
       <p class="lede">OptiRoute decides which products each store gets, from which warehouse and batch, and on which truck.
       Check the week below, then press the button. It takes about 10 seconds.</p>

@@ -12,7 +12,6 @@ export function renderReview(view) {
   const p = state.plan;
   view.innerHTML = `
     <div class="page-head" data-enter>
-      <div class="eyebrow">Step 2</div>
       <h1>Review the plan</h1>
       <p class="lede">The headline results first, each next to today's pro-rata spreadsheet method on the same stock.
       Then every shipment with the reason it was sent.</p>

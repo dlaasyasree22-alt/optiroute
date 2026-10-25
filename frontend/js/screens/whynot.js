@@ -17,7 +17,6 @@ export function renderWhyNot(view) {
 
   view.innerHTML = `
     <div class="page-head" data-enter>
-      <div class="eyebrow">Step 4 · optional</div>
       <h1>Ask "Why not?"</h1>
       <p class="lede">Think a store should get a shipment the plan did not give it? Describe it below. The engine re-plans the whole
       network with your shipment locked in, then shows exactly what changes and what it costs.</p>

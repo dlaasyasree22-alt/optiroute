@@ -13,7 +13,6 @@ export function renderApprove(view) {
 
   view.innerHTML = `
     <div class="page-head" data-enter>
-      <div class="eyebrow">Step 5</div>
       <h1>Approve and export</h1>
       <p class="lede">Approving locks this plan as the version sent to warehouses. Then download the manifest for the planning team
       and pick lists for each warehouse.</p>

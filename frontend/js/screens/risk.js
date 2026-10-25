@@ -17,7 +17,6 @@ function verdict(r) {
 export async function renderRisk(view) {
   view.innerHTML = `
     <div class="page-head" data-enter>
-      <div class="eyebrow">Step 3</div>
       <h1>Stress-test the plan</h1>
       <p class="lede">Demand never matches the forecast exactly. Here the plan is replayed against 500 possible weeks,
       including region-wide surges, to show how it holds up when things go wrong. ${term("monte_carlo", "How does this work?")}</p>

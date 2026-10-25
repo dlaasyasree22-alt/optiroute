@@ -11,13 +11,22 @@ import { renderAbout } from "./screens/about.js";
 import { renderFlow } from "./screens/flow.js";
 import { openTour, maybeShowTour } from "./tour.js";
 
-// The weekly flow. Each step after "generate" needs a plan to exist.
+const svg = (d) => `<svg viewBox="0 0 24 24" aria-hidden="true">${d}</svg>`;
+const STEP_ICONS = {
+  generate: svg('<path d="M12 3v4M12 17v4M3 12h4M17 12h4M6 6l2.5 2.5M15.5 15.5L18 18M6 18l2.5-2.5M15.5 8.5L18 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>'),
+  review: svg('<path d="M8 6h12M8 12h12M8 18h12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="4" cy="6" r="1.4" fill="currentColor"/><circle cx="4" cy="12" r="1.4" fill="currentColor"/><circle cx="4" cy="18" r="1.4" fill="currentColor"/>'),
+  risk: svg('<path d="M2 12h4l2.5-6 4.5 12 2.5-6H22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>'),
+  whynot: svg('<path d="M6 4v6a4 4 0 004 4h8M15 10l4 4-4 4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>'),
+  approve: svg('<rect x="4" y="4" width="16" height="16" rx="3" fill="none" stroke="currentColor" stroke-width="2"/><path d="M8 12.5l2.5 2.5L16 9.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>'),
+};
+
+// The weekly plan's parts. Everything after "generate" needs a plan to exist.
 const STEPS = [
-  { id: "generate", title: "Generate", sub: "Build this week's plan", render: renderGenerate },
-  { id: "review", title: "Review", sub: "Check results and shipments", render: renderReview },
-  { id: "risk", title: "Stress-test", sub: "See how a bad week looks", render: renderRisk },
-  { id: "whynot", title: "Ask \"Why not?\"", sub: "Test your own change", render: renderWhyNot },
-  { id: "approve", title: "Approve & export", sub: "Lock and send to warehouses", render: renderApprove },
+  { id: "generate", title: "Generate", icon: STEP_ICONS.generate, render: renderGenerate },
+  { id: "review", title: "Review", icon: STEP_ICONS.review, render: renderReview },
+  { id: "risk", title: "Stress-test", icon: STEP_ICONS.risk, render: renderRisk },
+  { id: "whynot", title: "Why not?", icon: STEP_ICONS.whynot, render: renderWhyNot },
+  { id: "approve", title: "Approve", icon: STEP_ICONS.approve, render: renderApprove },
 ];
 const LINKS = [
   { id: "flow", title: "Flow map (whole picture)", icon: ICONS.flow, render: renderFlow },
@@ -43,28 +52,19 @@ function stepDone(id) {
 
 function renderRail() {
   const cur = currentId();
+  document.getElementById("crumb").innerHTML = state.plan
+    ? `Week of <b>${new Date((state.request?.cycle_date || "2026-10-26") + "T00:00").toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}</b> · ${state.approved ? "Approved" : "Draft plan"}`
+    : "No plan yet";
   const steps = document.getElementById("steps");
-  steps.innerHTML =
-    '<i class="progress-line"></i>' +
-    STEPS.map((s, i) => {
-      const locked = i > 0 && !state.plan;
-      const done = stepDone(s.id);
-      return `<li><button class="step ${done ? "done" : ""}" data-go="${s.id}"
-        ${cur === s.id ? 'aria-current="step"' : ""} ${locked ? 'aria-disabled="true" title="Generate a plan first"' : ""}>
-        <span class="step-dot">${done ? ICONS.check : i + 1}</span>
-        <span class="step-text"><b>${s.title}</b><span>${s.sub}</span></span>
-      </button></li>`;
-    }).join("");
-
-  // Progress line grows to the last completed step
-  const doneCount = STEPS.filter((s) => stepDone(s.id)).length;
-  const items = steps.querySelectorAll("li");
-  const line = steps.querySelector(".progress-line");
-  if (doneCount > 1) {
-    const last = items[Math.min(doneCount, STEPS.length) - 1];
-    const target = last.offsetTop + 22 - 22;
-    anime({ targets: line, height: target, duration: 600, easing: "easeOutCubic" });
-  }
+  steps.innerHTML = STEPS.map((s, i) => {
+    const locked = i > 0 && !state.plan;
+    const done = stepDone(s.id);
+    return `<li><button class="step ${done ? "done" : ""}" data-go="${s.id}"
+      ${cur === s.id ? 'aria-current="page"' : ""} ${locked ? 'aria-disabled="true" title="Generate a plan first"' : ""}>
+      <span class="step-icon">${s.icon}</span><b>${s.title}</b>
+      ${done ? `<span class="step-check" title="Done">${ICONS.check}<span class="sr-only">done</span></span>` : ""}
+    </button></li>`;
+  }).join("");
 
   document.getElementById("links").innerHTML = LINKS.map(
     (l) => `<a href="#/${l.id}" ${cur === l.id ? 'aria-current="page"' : ""}>${l.icon}${l.title}</a>`
@@ -96,8 +96,6 @@ function route() {
     return;
   }
   state.visited.add(id);
-  document.getElementById("crumb").innerHTML =
-    index >= 0 ? `Step ${index + 1} of ${STEPS.length} · <b>${step.title}</b>` : `<b>${step.title}</b>`;
   renderRail();
   view.innerHTML = "";
   step.render(view);

@@ -231,7 +231,9 @@ def backtest():
 
 @app.get("/{path:path}")
 def frontend(path: str):
-    """Serves the web app. Unknown paths fall back to index.html; nothing outside frontend/ is served."""
+    """Serves the landing page at /, the planner at /app (and any unknown path); nothing outside frontend/ is served."""
+    if path == "":
+        return FileResponse(FRONTEND / "landing.html")
     target = (FRONTEND / path).resolve()
     if path and target.is_file() and FRONTEND.resolve() in target.parents:
         return FileResponse(target)

@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>OptiRoute | Risk-aware distribution planning</title>
+  <meta name="description" content="OptiRoute plans which products go from which warehouse to which store, on which truck, so stores stay stocked and older stock ships first.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/landing.css">
+</head>
+<body>
+  <header class="nav" id="nav">
+    <a class="brand" href="/" aria-label="OptiRoute home">
+      <svg viewBox="0 0 32 32" aria-hidden="true"><path d="M4 24 L12 10 L20 18 L28 6" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/><circle cx="4" cy="24" r="3" fill="currentColor"/><circle cx="28" cy="6" r="3" fill="currentColor"/></svg>
+      OptiRoute
+    </a>
+    <nav class="nav-links" aria-label="Sections">
+      <a href="#route">The route</a>
+      <a href="#results">Results</a>
+      <a href="#how">How it works</a>
+    </nav>
+    <a class="btn btn-small magnetic" href="/app#/generate" data-haptic>Open the planner</a>
+  </header>
+
+  <main>
+    <!-- Hero: WebGL contour field behind kinetic type -->
+    <section class="hero" id="hero">
+      <canvas id="field" aria-hidden="true"></canvas>
+      <div class="hero-fade" aria-hidden="true"></div>
+      <div class="hero-inner" data-parallax="0.25">
+        <p class="kicker" data-reveal>Distribution intelligence for FMCG networks</p>
+        <h1 class="headline" aria-label="Every store stocked. Every batch on time.">
+          <span class="line" data-split>Every store stocked.</span>
+          <span class="line" data-split>Every batch on time.</span>
+        </h1>
+        <p class="cycler-row" aria-live="off">
+          <span>One weekly plan for</span>
+          <span class="cycler" id="cycler" aria-hidden="true"></span>
+          <span class="sr-only">fewer stockouts, fuller trucks, less expired stock and decisions you can defend.</span>
+        </p>
+        <p class="lede" data-reveal>OptiRoute decides which products leave which warehouse, in which batch, on which truck, for every store.
+          It plans for uncertain demand, ships the oldest stock first, and explains every choice in plain language.</p>
+        <div class="cta-row" data-reveal>
+          <a class="btn btn-big magnetic" href="/app#/generate" data-haptic>
+            Generate a weekly plan
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </a>
+          <a class="btn-text magnetic" href="/app#/flow" data-haptic>See the whole system</a>
+        </div>
+      </div>
+      <a class="scroll-cue" href="#route" aria-label="Scroll to the route">
+        <span></span>
+      </a>
+    </section>
+
+    <!-- Pinned parallax scene: a truck run from warehouse to stores -->
+    <section class="route" id="route" aria-labelledby="routeTitle">
+      <div class="route-sticky">
+        <div class="route-copy">
+          <p class="kicker">One delivery run</p>
+          <h2 id="routeTitle" data-words>Watch a single plan leave the warehouse.</h2>
+          <ol class="route-captions" id="captions">
+            <li class="on">The batch that expires soonest is loaded first.</li>
+            <li>Trucks fill up before they leave, so freight per unit drops.</li>
+            <li>Each store gets stock before it would run out.</li>
+            <li>Every line carries a reason a planner can read.</li>
+          </ol>
+          <div class="route-progress" aria-hidden="true"><i id="routeBar"></i></div>
+        </div>
+        <div class="scene" id="scene" aria-hidden="true">
+          <svg class="layer far" data-depth="0.15" viewBox="0 0 2400 600" preserveAspectRatio="xMinYMid slice">
+            <path d="M0 430 Q 200 360 400 410 T 800 400 T 1200 390 T 1600 410 T 2000 380 T 2400 400 V600 H0Z" fill="#e7e5df"/>
+          </svg>
+          <svg class="layer mid" data-depth="0.4" viewBox="0 0 2400 600" preserveAspectRatio="xMinYMid slice">
+            <g fill="#d9d6ce">
+              <rect x="120" y="300" width="220" height="140" rx="6"/><path d="M110 305 L230 250 L350 305Z"/>
+              <rect x="760" y="350" width="90" height="90" rx="6"/><rect x="1120" y="330" width="110" height="110" rx="6"/>
+              <rect x="1500" y="345" width="95" height="95" rx="6"/><rect x="1880" y="335" width="105" height="105" rx="6"/>
+            </g>
+            <g fill="#c9c5bb" font-family="IBM Plex Sans, sans-serif" font-size="22" font-weight="600">
+              <text x="150" y="285">Warehouse</text><text x="770" y="335">Store</text><text x="1135" y="315">Store</text>
+              <text x="1510" y="330">Store</text><text x="1895" y="320">Store</text>
+            </g>
+          </svg>
+          <svg class="layer road" data-depth="0.7" viewBox="0 0 2400 600" preserveAspectRatio="xMinYMid slice">
+            <rect x="0" y="470" width="2400" height="70" fill="#d3cfc6"/>
+            <path d="M0 505 H2400" stroke="#f4f3ef" stroke-width="4" stroke-dasharray="40 30"/>
+          </svg>
+          <div class="trucks" id="trucks">
+            <svg class="truck" viewBox="0 0 160 80"><rect x="2" y="10" width="100" height="52" rx="6" fill="#155e63"/><path d="M104 26h30l22 20v16h-52z" fill="#0f4a4e"/><rect x="112" y="30" width="20" height="14" rx="2" fill="#e3efee"/><circle cx="30" cy="66" r="11" fill="#1d2226"/><circle cx="128" cy="66" r="11" fill="#1d2226"/><rect class="load" x="10" y="18" width="84" height="36" rx="3" fill="#e3efee"/></svg>
+            <svg class="truck" viewBox="0 0 160 80"><rect x="2" y="10" width="100" height="52" rx="6" fill="#155e63"/><path d="M104 26h30l22 20v16h-52z" fill="#0f4a4e"/><rect x="112" y="30" width="20" height="14" rx="2" fill="#e3efee"/><circle cx="30" cy="66" r="11" fill="#1d2226"/><circle cx="128" cy="66" r="11" fill="#1d2226"/><rect class="load" x="10" y="18" width="84" height="36" rx="3" fill="#e3efee"/></svg>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Results from a recorded real engine run -->
+    <section class="results" id="results" aria-labelledby="resultsTitle">
+      <div class="wrap">
+        <p class="kicker">Measured on the same stock</p>
+        <h2 id="resultsTitle" data-words>Against today's pro-rata spreadsheet method.</h2>
+        <p class="note" id="resultsNote">Loading figures from a recorded engine run…</p>
+        <div class="result-rows" id="resultRows"></div>
+      </div>
+    </section>
+
+    <!-- Kinetic marquee driven by scroll velocity -->
+    <section class="marquee" aria-hidden="true">
+      <div class="marquee-track" id="marquee">
+        <span>Forecast</span><span>Optimise</span><span>Oldest first</span><span>Stress-test</span><span>Explain</span>
+        <span>Forecast</span><span>Optimise</span><span>Oldest first</span><span>Stress-test</span><span>Explain</span>
+      </div>
+    </section>
+
+    <!-- How it works: sticky stage word + scrolling stage list -->
+    <section class="how" id="how" aria-labelledby="howTitle">
+      <div class="wrap how-grid">
+        <div class="how-sticky">
+          <p class="kicker">How a plan is made</p>
+          <h2 id="howTitle" class="how-word"><span id="howWord">Forecast</span></h2>
+          <div class="how-meter" aria-hidden="true"><i id="howMeter"></i></div>
+        </div>
+        <ol class="how-list">
+          <li data-stage="Forecast">
+            <h3>Forecast demand, cautiously</h3>
+            <p>Sixty weeks of sales feed a model that predicts a likely and a cautious demand for every store and product. Days where a store sold nothing because the shelf was empty are corrected first, so shortages do not shrink next week's forecast.</p>
+          </li>
+          <li data-stage="Optimise">
+            <h3>Choose every shipment at once</h3>
+            <p>One optimiser weighs freight, lost sales and expiring stock together, across every warehouse, store and truck. It proves the plan is within 1% of the cheapest possible in about six seconds.</p>
+          </li>
+          <li data-stage="Oldest first">
+            <h3>Ship the oldest stock first</h3>
+            <p>A repair pass swaps in the batch that expires soonest wherever shelf life allows, then a checker confirms zero first-expiry-first-out breaks. Warehouse teams get pick lists already in that order.</p>
+          </li>
+          <li data-stage="Stress-test">
+            <h3>Rehearse 500 different weeks</h3>
+            <p>The plan is replayed against 500 simulated weeks of demand, including regional surges. Planners see how a bad week looks and which stores are most likely to run short.</p>
+          </li>
+          <li data-stage="Explain">
+            <h3>Answer "why not?" with numbers</h3>
+            <p>Disagree with a decision? Ask for your own shipment. The engine re-plans with it locked in and shows exactly what it costs in freight, expired stock and lost sales elsewhere.</p>
+          </li>
+        </ol>
+      </div>
+    </section>
+
+    <section class="final" aria-labelledby="finalTitle">
+      <canvas id="field2" aria-hidden="true"></canvas>
+      <div class="wrap final-inner">
+        <h2 id="finalTitle" data-words>Plan next week in under ten minutes.</h2>
+        <p class="lede">Generate, review, stress-test, question and approve, all in one place.</p>
+        <a class="btn btn-big magnetic" href="/app#/generate" data-haptic>Open the planner</a>
+      </div>
+    </section>
+  </main>
+
+  <footer class="foot">
+    <div class="wrap foot-inner">
+      <span><b>OptiRoute</b> by TechTards</span>
+      <span>All figures come from a simulated network of 3 warehouses, 20 stores and 30 products. <a href="/app#/about">Data and assumptions</a></span>
+    </div>
+  </footer>
+
+  <script src="/vendor/anime.min.js"></script>
+  <script type="module" src="/js/landing.js"></script>
+</body>
+</html>

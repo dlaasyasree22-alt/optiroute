@@ -36,7 +36,6 @@ export function renderWhyNot(view) {
           <div class="field"><label for="wstore">To store</label>
             <select class="input" id="wstore">${meta.stores.map((s) => `<option value="${s}" ${s === store ? "selected" : ""}>${storeName(s)}</option>`).join("")}</select></div>
         </div>
-        <div class="callout" id="today" style="margin-top:16px"></div>
         <button class="btn btn-lg" style="margin-top:18px" type="submit" id="wnBtn">Re-plan with my shipment</button>
       </form>
       <section class="panel panel-pad" id="wnResult" aria-live="polite" data-enter>
@@ -48,32 +47,13 @@ export function renderWhyNot(view) {
   enter(view);
 
   const form = view.querySelector("#wnForm");
-  const today = () => {
-    const s = form.wsku.value, st = form.wstore.value, w = form.wwh.value;
-    const lines = state.plan.shipments.filter((x) => x.sku_id === s && x.destination_store === st);
+  const packHint = () => {
+    const s = form.wsku.value;
     const pack = state.meta?.skus?.find((x) => x.sku_id === s)?.case_pack_size;
     view.querySelector("#wpack").textContent = pack ? `Ships in cases of ${pack}, so this is rounded up to whole cases.` : "";
-    const fromWh = lines.filter((x) => x.source_warehouse === w).reduce((a, x) => a + x.units_shipped, 0);
-    const total = lines.reduce((a, x) => a + x.units_shipped, 0);
-    const sources = [...new Set(lines.map((x) => x.source_warehouse))];
-    const product = skuName(s, state.meta);
-    const others = sources
-      .filter((x) => x !== w)
-      .map((x) => `${num(lines.filter((l) => l.source_warehouse === x).reduce((a, l) => a + l.units_shipped, 0))} from ${whName(x)}`);
-    let text;
-    if (fromWh) {
-      text = `${whName(w)} sends <b>${num(fromWh)} units</b> of ${product} to ${storeName(st)}.` +
-        (others.length ? ` ${storeName(st)} also gets ${others.join(" and ")}.` : "");
-    } else if (total) {
-      const where = sources.length === 1 ? `its ${num(total)} units from ${whName(sources[0])}` : others.join(" and ");
-      text = `${whName(w)} sends <b>nothing</b> of ${product} to ${storeName(st)}. The store gets ${where}.`;
-    } else {
-      text = `${storeName(st)} gets <b>no</b> ${product} this week from any warehouse.`;
-    }
-    view.querySelector("#today").innerHTML = `<b>Current plan:</b> ${text}`;
   };
-  ["wsku", "wstore", "wwh"].forEach((id) => ["change", "input"].forEach((ev) => form[id].addEventListener(ev, today)));
-  today();
+  ["change", "input"].forEach((ev) => form.wsku.addEventListener(ev, packHint));
+  packHint();
   paintHistory(view);
   const prev = state.whyNot.at(-1);
   if (prev && !pre.sku) paintAnswer(view.querySelector("#wnResult"), prev.request, prev.response);

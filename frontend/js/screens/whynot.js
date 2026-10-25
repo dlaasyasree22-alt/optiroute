@@ -56,16 +56,14 @@ export function renderWhyNot(view) {
     const fromWh = lines.filter((x) => x.source_warehouse === w).reduce((a, x) => a + x.units_shipped, 0);
     const total = lines.reduce((a, x) => a + x.units_shipped, 0);
     const sources = [...new Set(lines.map((x) => x.source_warehouse))];
-    const units = Number(form.wunits.value) || 0;
     const current = total
       ? `${storeName(st)} gets ${num(total)} units from ${sources.map((x) => `${whName(x)} (${num(lines.filter((l) => l.source_warehouse === x).reduce((a, l) => a + l.units_shipped, 0))})`).join(" and ")}${
           fromWh ? "" : `, none from ${whName(w)}`}.`
       : `${storeName(st)} gets none of this product this week.`;
     view.querySelector("#today").innerHTML = `
-      <div><b>Recommended plan now:</b> ${current}</div>
-      <div style="margin-top:6px"><b>Your change:</b> at least ${num(units)} units from ${whName(w)}${fromWh ? ` (the plan already sends ${num(fromWh)})` : ""}.</div>`;
+<b>Current plan:</b> ${current}`;
   };
-  ["wsku", "wstore", "wwh", "wunits"].forEach((id) => form[id].addEventListener("input", today));
+  ["wsku", "wstore", "wwh"].forEach((id) => form[id].addEventListener("input", today));
   today();
   paintHistory(view);
   const prev = state.whyNot.at(-1);

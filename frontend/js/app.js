@@ -8,6 +8,7 @@ import { renderWhyNot } from "./screens/whynot.js";
 import { renderApprove } from "./screens/approve.js";
 import { renderProof } from "./screens/proof.js";
 import { renderAbout } from "./screens/about.js";
+import { renderFlow } from "./screens/flow.js";
 import { openTour, maybeShowTour } from "./tour.js";
 
 // The weekly flow. Each step after "generate" needs a plan to exist.
@@ -19,6 +20,7 @@ const STEPS = [
   { id: "approve", title: "Approve & export", sub: "Lock and send to warehouses", render: renderApprove },
 ];
 const LINKS = [
+  { id: "flow", title: "Flow map (whole picture)", icon: ICONS.flow, render: renderFlow },
   { id: "proof", title: "Proof of results", icon: ICONS.proof, render: renderProof },
   { id: "about", title: "Data & assumptions", icon: ICONS.book, render: renderAbout },
 ];

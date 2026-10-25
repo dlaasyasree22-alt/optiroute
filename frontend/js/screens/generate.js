@@ -159,7 +159,10 @@ function showOutcome(view) {
       ${num(p.shipments.length)} shipment lines on ${num(p.kpis.trucks_used)} trucks, meeting
       ${pct(p.kpis.projected_fill_rate * 100)} of expected demand.
     </div>
-    <button class="btn" style="margin-top:14px" data-go="review">Review the plan ${ICONS.arrow}</button>`;
+    <div style="margin-top:14px; display:flex; gap:10px; flex-wrap:wrap">
+      <button class="btn" data-go="review">Review the plan ${ICONS.arrow}</button>
+      <button class="btn btn-quiet" data-go="flow">See it on the flow map</button>
+    </div>`;
   anime({ targets: view.querySelector("#genOutcome"), opacity: [0, 1], translateY: [8, 0], duration: 400, easing: "easeOutCubic" });
 }
 

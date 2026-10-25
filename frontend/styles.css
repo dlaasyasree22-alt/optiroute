@@ -377,4 +377,48 @@ table.data td.r, table.data th.r { text-align: right; font-variant-numeric: tabu
 }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
+  .draw { stroke-dashoffset: 0 !important; }
+}
+
+/* Flow map */
+.flow-wrap { padding: 16px 20px 20px; overflow-x: auto; }
+.flow-wrap svg { display: block; width: 100%; min-width: 760px; height: auto; }
+.flow-wrap .state { padding: 32px 16px; }
+.sys text, .net text { font-family: var(--font); }
+.fcol { font-size: 11px; font-weight: 600; letter-spacing: .08em; fill: var(--muted); }
+.fnode { cursor: pointer; }
+.fnode rect { fill: var(--surface); stroke: var(--line); stroke-width: 1.5; transition: stroke .15s, fill .15s; }
+.fnode.on rect { stroke: var(--accent); }
+.fnode:hover rect, .fnode:focus rect { fill: var(--accent-soft); stroke: var(--accent); }
+.fnode:focus { outline: none; }
+.fnode:focus rect { stroke-width: 3; }
+.ft { font-size: 14px; font-weight: 600; fill: var(--ink); }
+.fs { font-size: 12px; fill: var(--muted); }
+.fm { font-size: 14px; font-weight: 600; fill: var(--accent); font-variant-numeric: tabular-nums; }
+.fedge { fill: none; stroke: var(--line); stroke-width: 2; }
+.fedge.loop { stroke-dasharray: .02 .02; animation: fadein .6s .8s both; }
+.draw { stroke-dasharray: 1; stroke-dashoffset: 1; animation: draw .9s ease-in-out forwards; }
+@keyframes draw { to { stroke-dashoffset: 0; } }
+@keyframes fadein { from { opacity: 0; } }
+.fdot { fill: var(--accent); }
+
+.net .lane { fill: none; stroke: var(--accent); stroke-opacity: .28; stroke-linecap: round; transition: stroke-opacity .15s; }
+.net .lane-flow { fill: none; stroke: var(--accent); stroke-width: 2; stroke-linecap: round; stroke-dasharray: 1 16; stroke-opacity: .7; animation: laneflow 1.6s linear infinite; pointer-events: none; }
+.net .lane-hit { fill: none; stroke: transparent; cursor: pointer; }
+.net.focused .lane { stroke-opacity: .07; }
+.net.focused .lane-flow { stroke-opacity: .08; }
+.net.focused .lane.hot { stroke-opacity: .85; }
+.net.focused .lane-flow.hot { stroke-opacity: 1; stroke: var(--surface); }
+.wnode, .snode { cursor: default; }
+.wnode:focus, .snode:focus { outline: none; }
+.wnode rect { fill: var(--surface); stroke: var(--accent); stroke-width: 1.5; }
+.wnode:hover rect, .wnode:focus rect { fill: var(--accent-soft); }
+.snode rect { fill: var(--accent); }
+.snode .ss { font-size: 13px; font-weight: 600; fill: var(--ink); }
+.snode .sv { font-size: 12.5px; fill: var(--ink-2); font-variant-numeric: tabular-nums; }
+.snode:hover .ss, .snode:focus .ss { fill: var(--accent); }
+@keyframes laneflow { to { stroke-dashoffset: -17; } }
+.flow-tip {
+  position: fixed; z-index: 70; pointer-events: none; background: var(--surface); border: 1px solid var(--line);
+  box-shadow: var(--shadow); border-radius: 8px; padding: 8px 12px; font-size: 13px; max-width: 280px; line-height: 1.45;
 }

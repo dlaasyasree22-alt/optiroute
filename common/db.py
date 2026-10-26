@@ -1,7 +1,9 @@
 import sqlite3
 import pandas as pd
 
-DB_PATH = "optiroute_data.sqlite"
+from pathlib import Path
+
+DB_PATH = str(Path(__file__).resolve().parent.parent / "optiroute_data.sqlite")
 
 
 def get_connection():
@@ -14,6 +16,7 @@ def load_table(table_name: str) -> pd.DataFrame:
         "lanes",
         "sales_history",
         "inventory_batches",
+        "store_inventory",
     }
 
     if table_name not in allowed_tables:
